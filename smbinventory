@@ -1,0 +1,5 @@
+[samba_server]
+node2
+[samba_client]
+node1
+

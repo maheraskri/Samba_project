@@ -1,0 +1,79 @@
+---
+- name: samba server project
+  hosts: node2
+  vars:
+    myusers:
+    - test1
+    - test2
+  tasks:
+    - name: installing the samba server 
+      yum:
+        name: samba
+        state: latest 
+    - name : creation of group 
+      group: 
+        name: "smbusers"
+        state: present
+    - name: create two users
+      user: 
+        name: "{{ item }}" 
+        shell: "/sbin/nologin"
+        append: yes
+        group: "smbusers"
+        create_home: no 
+      loop: "{{ myusers }}"
+    - name: create directory to share 
+      file:
+        path: /share/smbshare
+        state: directory 
+        owner: root
+        group: smbusers
+        mode: "2775"
+        setype: "samba_share_t"
+    - name: add SMB users and set password 
+      shell: smbpasswd -s -a {{ item }} 
+      args:
+        stdin: "test\ntest"
+      loop: "{{ myusers }}"
+    - name: configure the samba share 
+      blockinfile:
+        path: /etc/samba/smb.conf
+        block: |
+          [testshare]
+                  path = /share/smbshare
+                  guest ok = no
+                  writable = yes
+                  browsable = yes 
+                  valid users = test1, test2, @smbusers 
+                  write list = "@smbusers"
+      notify: 
+        - start_samba
+        - open_port
+  handlers:
+    - name: start_samba
+      service:
+        name: smb
+        state: started
+    - name: open_port
+      firewalld:
+        service: samba
+        state: enabled
+        immediate: yes
+        permanent: yes  
+
+- name: samba client
+  hosts: node1
+  tasks:
+    - name: install samba client package
+      yum:
+        name: "samba-client , cifs-utils"
+        state: latest
+    - name: create the credential txt file 
+      copy: 
+        content: "user=test1\npassword=test\n"
+        dest: /tmp/creds.txt
+        owner: root
+        group: root
+        mode: "0600"
+    - name: mount the SMB share 
+      shell: "mount //10.1.1.5/testshare /mnt -o credentials=/tmp/creds.txt"
